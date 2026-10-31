@@ -1,0 +1,69 @@
+name: Build LRCGET 2.2.1 - No Album Tag Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout original LRCGET 2.2.1 source
+        uses: actions/checkout@v4
+        with:
+          repository: tranxuanthang/lrcget
+          ref: '2.2.1'
+          persist-credentials: false
+
+      - name: Make Album tag optional
+        shell: pwsh
+        run: |
+          $path = 'src-tauri/src/scanner/metadata.rs'
+          $source = [System.IO.File]::ReadAllText((Join-Path (Get-Location) $path))
+          $source = $source.Replace("`r`n", "`n")
+          $old = @'
+                  let album = tag
+                      .album()
+                      .ok_or_else(|| MetadataError::MissingField {
+                          field: "album".to_string(),
+                          path: file_path.clone(),
+                      })?
+                      .to_string();
+          '@
+          $new = @'
+                  // Album is optional; singles and user-organized files may omit it.
+                  let album = tag.album().unwrap_or_default().to_string();
+          '@
+          $old = $old.Replace("`r`n", "`n")
+          $new = $new.Replace("`r`n", "`n")
+          if (-not $source.Contains($old)) {
+            throw 'Expected LRCGET 2.2.1 Album-validation code not found. Refusing to build unpatched application.'
+          }
+          $source = $source.Replace($old, $new)
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $path), $source, [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'Patched LRCGET: blank Album tags are now allowed.'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Windows installer (NSIS)
+        run: npx tauri build --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LRCGET-2.2.1-No-Album-Windows-x64
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
