@@ -56,7 +56,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install frontend dependencies
-        run: npm ci
+        # Upstream 2.2.1 package-lock is out of sync with package.json.
+        # npm install reconciles the lockfile in the ephemeral build checkout.
+        run: npm install --no-audit --no-fund
 
       - name: Build Windows installer (NSIS)
         run: npx tauri build --bundles nsis
